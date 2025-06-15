@@ -1,8 +1,8 @@
 # ByeByeDPI Android 
-Русский | [English](README-en.md)
+Русский | [English](README-en.md) | [Türkçe](README-tr.md)
 
 <div style="text-align: center;">
-  <img alt="Логотип ByeDPI" src="https://github.com/romanvht/ByeDPIAndroid/raw/master/.github/images/logo.svg" width="100%" height="200px">
+  <img alt="Логотип ByeDPI" src="https://github.com/romanvht/ByeDPIAndroid/raw/master/.github/images/app.svg" width="100%" height="200px">
 </div>
 
 ---
@@ -29,7 +29,7 @@
 * Рекомендуется подключится один раз к VPN, чтобы принять запрос.
 * После этого, при загрузке устройства, приложение автоматически запустит сервис в зависимости от настроек (VPN/Proxy)
 * Если у вас Android TV/BOX, и при подключении пропадает соединение по Ethernet, активируйте режим белого списка и укажите нужные приложения, которые должны работать через VPN (например, YouTube)
-* Инструкция для [SberBOX](sbox.md)
+* Комплексная инструкция от комьюнити [ByeByeDPI-Manual](https://github.com/HideakiTaiki/ByeByeDPI-Manual)
 
 ### Как использовать ByeByeDPI вместе с AdGuard?
 * Запустите ByeByeDPI в режиме прокси.
