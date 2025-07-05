@@ -1,11 +1,19 @@
-# ByeByeDPI Android 
-Русский | [English](README-en.md) | [Türkçe](README-tr.md)
-
-<div style="text-align: center;">
-  <img alt="Логотип ByeDPI" src="https://github.com/romanvht/ByeDPIAndroid/raw/master/.github/images/app.svg" width="100%" height="200px">
+<div align="center">
+  <p>
+    <img src="https://github.com/romanvht/ByeDPIAndroid/raw/master/.github/images/app.svg" alt="Логотип ByeDPI" width="200" />
+  </p>
+  <h1>ByeByeDPI Android</h1>
+  <p>
+    Русский |
+    <a href="README-en.md">English</a> |
+    <a href="README-tr.md">Türkçe</a>
+  </p>
+  <p>
+    <a href="https://github.com/romanvht/ByeByeDPI/releases/latest"><img src="https://img.shields.io/github/v/release/romanvht/ByeByeDPI" alt="Latest Release" /></a>
+    <a href="https://github.com/romanvht/ByeByeDPI/releases"><img src="https://img.shields.io/github/downloads/romanvht/ByeByeDPI/total" alt="Downloads" /></a>
+    <a href="https://github.com/romanvht/ByeByeDPI/blob/master/LICENSE"><img src="https://img.shields.io/github/license/romanvht/ByeByeDPI" alt="License" /></a>
+  </p>
 </div>
-
----
 
 Приложение для Android, которое локально запускает ByeDPI и перенаправляет весь трафик через него.
 
@@ -40,6 +48,19 @@
 Хост: 127.0.0.1
 Порт: 1080 (по умолчанию)
 ```
+
+### Сборка
+1. Клонируйте репозиторий с сабмодулями:
+```bash
+git clone --recurse-submodules
+```
+2. Запустите скрипт сборки из корня репозитория:
+```bash
+./gradlew assembleRelease
+```
+3. APK будет в `app/build/outputs/apk/release/`
+
+> P.S.: hev_socks5_tunnel не соберется под Windows, вам нужно будет использовать WSL
 
 ### Зависимости
 - [ByeDPI](https://github.com/hufrea/byedpi)

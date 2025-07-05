@@ -4,8 +4,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ActivityInfo
-import android.content.res.Configuration
 import android.os.Bundle
 import android.text.SpannableString
 import android.text.Spanned
@@ -26,18 +24,15 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import io.github.dovecoteescapee.byedpi.R
 import io.github.dovecoteescapee.byedpi.data.Mode
-import io.github.dovecoteescapee.byedpi.data.ServiceStatus
-import io.github.dovecoteescapee.byedpi.services.ByeDpiProxyService
+import io.github.dovecoteescapee.byedpi.data.AppStatus
+import io.github.dovecoteescapee.byedpi.services.appStatus
 import io.github.dovecoteescapee.byedpi.services.ServiceManager
-import io.github.dovecoteescapee.byedpi.utility.GoogleVideoUtils
 import io.github.dovecoteescapee.byedpi.utility.HistoryUtils
 import io.github.dovecoteescapee.byedpi.utility.getPreferences
+import io.github.dovecoteescapee.byedpi.utility.SiteCheckUtils
+import androidx.core.content.edit
 import kotlinx.coroutines.*
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.InetSocketAddress
-import java.net.Proxy
-import java.net.URL
 
 class TestActivity : AppCompatActivity() {
 
@@ -46,11 +41,12 @@ class TestActivity : AppCompatActivity() {
     private lateinit var resultsTextView: TextView
     private lateinit var startStopButton: Button
 
+    private lateinit var siteChecker: SiteCheckUtils
     private lateinit var cmdHistoryUtils: HistoryUtils
     private lateinit var sites: MutableList<String>
     private lateinit var cmds: List<String>
 
-    private var originalCmdArgs: String = ""
+    private var savedCmd: String = ""
     private var testJob: Job? = null
 
     private val proxyIp: String = "127.0.0.1"
@@ -59,7 +55,7 @@ class TestActivity : AppCompatActivity() {
     private var isTesting: Boolean
         get() = prefs.getBoolean("is_test_running", false)
         set(value) {
-            prefs.edit().putBoolean("is_test_running", value).apply()
+            prefs.edit { putBoolean("is_test_running", value) }
         }
 
     private val prefs by lazy { getPreferences() }
@@ -68,6 +64,7 @@ class TestActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_proxy_test)
 
+        siteChecker = SiteCheckUtils(proxyIp, proxyPort)
         cmdHistoryUtils = HistoryUtils(this)
         scrollTextView = findViewById(R.id.scrollView)
         startStopButton = findViewById(R.id.startStopButton)
@@ -92,11 +89,15 @@ class TestActivity : AppCompatActivity() {
         }
 
         startStopButton.setOnClickListener {
+            startStopButton.isClickable = false
+
             if (isTesting) {
                 stopTesting()
             } else {
                 startTesting()
             }
+
+            startStopButton.postDelayed({ startStopButton.isClickable = true }, 500)
         }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -108,21 +109,6 @@ class TestActivity : AppCompatActivity() {
             }
         })
 
-        requestedOrientation = when (resources.configuration.orientation) {
-            Configuration.ORIENTATION_LANDSCAPE -> {
-                ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            }
-
-            Configuration.ORIENTATION_PORTRAIT -> {
-                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            }
-
-            else -> {
-                ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            }
-        }
-
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
     }
 
@@ -150,29 +136,31 @@ class TestActivity : AppCompatActivity() {
         }
     }
 
-    private fun startProxyService() {
-        try {
-            ServiceManager.start(this, Mode.Proxy)
-        } catch (e: Exception) {
-            Log.e("TestActivity", "Error start proxy service: ${e.message}")
+    private suspend fun startProxyService() {
+        withContext(Dispatchers.IO) {
+            try {
+                ServiceManager.start(this@TestActivity, Mode.Proxy)
+            } catch (e: Exception) {
+                Log.e("TestActivity", "Error start proxy service: ${e.message}")
+            }
         }
     }
 
-    private fun stopProxyService() {
-        try {
-            ServiceManager.stop(this)
-        } catch (e: Exception) {
-            Log.e("TestActivity", "Error stop proxy service: ${e.message}")
+    private suspend fun stopProxyService() {
+        withContext(Dispatchers.IO) {
+            try {
+                ServiceManager.stop(this@TestActivity)
+            } catch (e: Exception) {
+                Log.e("TestActivity", "Error stop proxy service: ${e.message}")
+            }
         }
     }
 
-    private suspend fun waitForProxyStatus(
-        statusNeeded: ServiceStatus,
-        timeoutMillis: Long = 5000L
-    ): Boolean {
+    private suspend fun waitForProxyStatus(statusNeeded: AppStatus): Boolean {
         val startTime = System.currentTimeMillis()
-        while (System.currentTimeMillis() - startTime < timeoutMillis) {
-            if (isProxyRunning() == (statusNeeded == ServiceStatus.Connected)) {
+        while (System.currentTimeMillis() - startTime < 3000) {
+            if (appStatus.first == statusNeeded) {
+                delay(100)
                 return true
             }
             delay(100)
@@ -181,104 +169,132 @@ class TestActivity : AppCompatActivity() {
     }
 
     private suspend fun isProxyRunning(): Boolean = withContext(Dispatchers.IO) {
-        ByeDpiProxyService.getStatus() == ServiceStatus.Connected
+        appStatus.first == AppStatus.Running
+    }
+
+    private fun updateCmdArgs(cmd: String) {
+        prefs.edit { putString("byedpi_cmd_args", cmd) }
     }
 
     private fun startTesting() {
-        isTesting = true
-
-        startStopButton.text = getString(R.string.test_stop)
-        resultsTextView.text = ""
-        progressTextView.text = ""
-
-        originalCmdArgs = prefs.getString("byedpi_cmd_args", "").orEmpty()
-
         sites = loadSites().toMutableList()
         cmds = loadCmds()
 
-        clearLog()
+        if (sites.isEmpty()) {
+            resultsTextView.text = ""
+            appendTextToResults("${getString(R.string.test_settings_domain_empty)}\n")
+            return
+        }
 
-        testJob = lifecycleScope.launch {
-            val delaySec = prefs.getString("byedpi_proxytest_delay", "1")?.toIntOrNull() ?: 1
-            val useGeneratedGoogleDomain = prefs.getBoolean("byedpi_proxytest_gdomain", true)
-            val fullLog = prefs.getBoolean("byedpi_proxytest_fulllog", false)
-            val logClickable = prefs.getBoolean("byedpi_proxytest_logclickable", false)
-            val requestsCount =
-                prefs.getString("byedpi_proxytest_requestsсount", "1")
-                    ?.toIntOrNull()
-                    ?.takeIf { it > 0 }
-                    ?: 1
+        testJob = lifecycleScope.launch(Dispatchers.IO) {
+            isTesting = true
+            savedCmd = prefs.getString("byedpi_cmd_args", "").orEmpty()
+            clearLog()
 
-            if (useGeneratedGoogleDomain) {
-                val googleVideoDomain = GoogleVideoUtils().generateGoogleVideoDomain()
-                if (googleVideoDomain != null) {
-                    sites.add(googleVideoDomain)
-                    appendTextToResults("--- $googleVideoDomain ---\n\n")
-                    Log.i("TestActivity", "Added auto-generated Google domain: $googleVideoDomain")
-                } else {
-                    Log.e("TestActivity", "Failed to generate Google domain")
-                }
+            withContext(Dispatchers.Main) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                startStopButton.text = getString(R.string.test_stop)
+                progressTextView.text = ""
+                resultsTextView.text = ""
             }
 
-            val successfulCmds = mutableListOf<Pair<String, Int>>()
+            val delaySec = prefs.getString("byedpi_proxytest_delay", "1")?.toIntOrNull() ?: 1
+            val fullLog = prefs.getBoolean("byedpi_proxytest_fulllog", false)
+            val logClickable = prefs.getBoolean("byedpi_proxytest_logclickable", false)
+            val requestsCount = prefs.getString("byedpi_proxytest_requestsсount", "1")?.toIntOrNull()?.takeIf { it > 0 } ?: 1
+
+            val successfulCmds = mutableListOf<Triple<String, Int, Int>>()
 
             for ((index, cmd) in cmds.withIndex()) {
                 val cmdIndex = index + 1
-                progressTextView.text = getString(R.string.test_process, cmdIndex, cmds.size)
 
-                val testCmd = "--ip $proxyIp --port $proxyPort $cmd"
-                updateCmdInPreferences(testCmd)
+                withContext(Dispatchers.Main) {
+                    progressTextView.text = getString(R.string.test_process, cmdIndex, cmds.size)
+                }
 
-                if (!isProxyRunning()) startProxyService()
-                waitForProxyStatus(ServiceStatus.Connected)
+                updateCmdArgs("--ip $proxyIp --port $proxyPort $cmd")
 
-                if (logClickable) {
-                    appendLinkToResults("$cmd\n")
-                } else {
-                    appendTextToResults("$cmd\n")
+                if (isProxyRunning()) stopTesting()
+                else startProxyService()
+
+                withContext(Dispatchers.Main) {
+                    if (logClickable) {
+                        appendLinkToResults("$cmd\n")
+                    } else {
+                        appendTextToResults("$cmd\n")
+                    }
+                }
+
+                if (!waitForProxyStatus(AppStatus.Running)) {
+                    stopTesting()
                 }
 
                 val totalRequests = sites.size * requestsCount
-                val checkResults = checkSitesAsync(sites, requestsCount, fullLog)
+                val checkResults = siteChecker.checkSitesAsync(
+                    sites = sites,
+                    requestsCount = requestsCount,
+                    fullLog = fullLog,
+                    onSiteChecked = { site, successCount, countRequests ->
+                        lifecycleScope.launch(Dispatchers.Main) {
+                            appendTextToResults("$site - $successCount/$countRequests\n")
+                        }
+                    }
+                )
+
                 val successfulCount = checkResults.sumOf { it.second }
                 val successPercentage = (successfulCount * 100) / totalRequests
-                delay(delaySec * 1000L)
 
-                if (successPercentage >= 50) successfulCmds.add(cmd to successPercentage)
-                appendTextToResults("$successfulCount/$totalRequests ($successPercentage%)\n\n")
+                if (successPercentage >= 50) successfulCmds.add(Triple(cmd, successfulCount, totalRequests))
+
+                withContext(Dispatchers.Main) {
+                    appendTextToResults("$successfulCount/$totalRequests ($successPercentage%)\n\n")
+                }
 
                 if (isProxyRunning()) stopProxyService()
-                waitForProxyStatus(ServiceStatus.Disconnected)
+                else stopTesting()
+
+                if (!waitForProxyStatus(AppStatus.Halted)) {
+                    stopTesting()
+                }
+
                 delay(delaySec * 1000L)
             }
 
             successfulCmds.sortByDescending { it.second }
 
-            progressTextView.text = getString(R.string.test_complete)
-            appendTextToResults("${getString(R.string.test_good_cmds)}\n\n")
+            withContext(Dispatchers.Main) {
+                appendTextToResults("${getString(R.string.test_good_cmds)}\n\n")
 
-            successfulCmds.forEachIndexed { index, (cmd, success) ->
-                appendTextToResults("${index + 1}. ")
-                appendLinkToResults("$cmd\n")
-                appendTextToResults("$success%\n\n")
+                successfulCmds.forEachIndexed { index, (cmd, successCount, total) ->
+                    appendTextToResults("${index + 1}. ")
+                    appendLinkToResults("$cmd\n")
+                    appendTextToResults("$successCount/$total\n\n")
+                }
+
+                appendTextToResults(getString(R.string.test_complete_info))
             }
 
-            appendTextToResults(getString(R.string.test_complete_info))
+            withContext(Dispatchers.Main) {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                progressTextView.text = getString(R.string.test_complete)
+            }
+
             stopTesting()
         }
     }
 
     private fun stopTesting() {
-        updateCmdInPreferences(originalCmdArgs)
-
         isTesting = false
-        testJob?.cancel()
-        startStopButton.text = getString(R.string.test_start)
+        
+        updateCmdArgs(savedCmd)
 
         lifecycleScope.launch {
-            if (isProxyRunning()) {
-                stopProxyService()
-            }
+            if (isProxyRunning()) stopProxyService()
+
+            testJob?.cancel()
+            testJob = null
+
+            startStopButton.text = getString(R.string.test_start)
         }
     }
 
@@ -332,7 +348,7 @@ class TestActivity : AppCompatActivity() {
     }
 
     private fun addToHistory(command: String) {
-        updateCmdInPreferences(command)
+        updateCmdArgs(command)
         cmdHistoryUtils.addCommand(command)
     }
 
@@ -362,83 +378,38 @@ class TestActivity : AppCompatActivity() {
     }
 
     private fun loadSites(): List<String> {
-        val userDomains = prefs.getBoolean("byedpi_proxytest_userdomains", false)
-        return if (userDomains) {
-            val domains = prefs.getString("byedpi_proxytest_domains", "").orEmpty()
-            domains.lines()
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-        } else {
-            assets.open("proxytest_sites.txt").bufferedReader().useLines { it.toList() }
+        val defaultDomainLists = setOf("youtube", "googlevideo")
+        val selectedDomainLists = prefs.getStringSet("byedpi_proxytest_domain_lists", defaultDomainLists)?: return emptyList()
+
+        val allDomains = mutableListOf<String>()
+
+        for (domainList in selectedDomainLists) {
+            val domains = when (domainList) {
+                "custom" -> {
+                    val customDomains = prefs.getString("byedpi_proxytest_domains", "").orEmpty()
+                    customDomains.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                }
+                else -> {
+                    try {
+                        assets.open("proxytest_$domainList.sites").bufferedReader().useLines { it.toList() }
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                }
+            }
+            allDomains.addAll(domains)
         }
+
+        return allDomains.distinct()
     }
 
     private fun loadCmds(): List<String> {
         val userCommands = prefs.getBoolean("byedpi_proxytest_usercommands", false)
         return if (userCommands) {
             val commands = prefs.getString("byedpi_proxytest_commands", "").orEmpty()
-            commands.lines()
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
+            commands.lines().map { it.trim() }.filter { it.isNotEmpty() }
         } else {
-            assets.open("proxytest_cmds.txt").bufferedReader().useLines { it.toList() }
+            assets.open("proxytest_strategies.list").bufferedReader().useLines { it.toList() }
         }
-    }
-
-    private suspend fun checkSitesAsync(
-        sites: List<String>,
-        requestsCount: Int,
-        fullLog: Boolean
-    ): List<Pair<String, Int>> {
-        return withContext(Dispatchers.IO) {
-            sites.map { site ->
-                async {
-                    if (!isProxyRunning()) return@async site to 0
-
-                    val successCount = checkSiteAccess(site, requestsCount)
-                    if (fullLog) {
-                        withContext(Dispatchers.Main) {
-                            appendTextToResults("$site - $successCount/$requestsCount\n")
-                        }
-                    }
-                    site to successCount
-                }
-            }.awaitAll()
-        }
-    }
-
-    private suspend fun checkSiteAccess(
-        site: String,
-        requestsCount: Int
-    ): Int = withContext(Dispatchers.IO) {
-        var responseCount = 0
-        val formattedUrl = if (site.startsWith("http://") || site.startsWith("https://"))
-            site
-        else
-            "https://$site"
-
-        repeat(requestsCount) { attempt ->
-            Log.i("CheckSite", "Attempt ${attempt + 1}/$requestsCount for $site")
-            try {
-                val url = URL(formattedUrl)
-                val proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress(proxyIp, proxyPort))
-                val connection = url.openConnection(proxy) as HttpURLConnection
-                connection.requestMethod = "GET"
-                connection.connectTimeout = 2000
-                connection.readTimeout = 2000
-
-                val responseCode = connection.responseCode
-                responseCount++
-                Log.i("CheckSite", "Response for $site: $responseCode")
-                connection.disconnect()
-            } catch (e: Exception) {
-                Log.e("CheckSite", "Error accessing $site: ${e.message}")
-            }
-        }
-        responseCount
-    }
-
-    private fun updateCmdInPreferences(cmd: String) {
-        prefs.edit().putString("byedpi_cmd_args", cmd).apply()
     }
 }

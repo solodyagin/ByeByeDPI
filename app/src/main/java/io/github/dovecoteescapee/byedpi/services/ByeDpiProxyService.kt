@@ -30,10 +30,6 @@ class ByeDpiProxyService : LifecycleService() {
         private const val NOTIFICATION_CHANNEL_ID: String = "ByeDPI Proxy"
 
         private var status: ServiceStatus = ServiceStatus.Disconnected
-
-        fun getStatus(): ServiceStatus {
-            return status
-        }
     }
 
     override fun onCreate() {
@@ -110,7 +106,7 @@ class ByeDpiProxyService : LifecycleService() {
         stopSelf()
     }
 
-    private suspend fun startProxy() {
+    private fun startProxy() {
         Log.i(TAG, "Starting proxy")
 
         if (proxyJob != null) {

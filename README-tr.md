@@ -1,11 +1,19 @@
-# ByeByeDPI Android
-[Русский](README.md) | [English](README-en.md) | Türkçe
-
-<div style="text-align: center;">
-  <img alt="ByeDPI Logo" src="https://github.com/romanvht/ByeDPIAndroid/raw/master/.github/images/app.svg" width="100%" height="200px">
+<div align="center">
+  <p>
+    <img src="https://github.com/romanvht/ByeDPIAndroid/raw/master/.github/images/app.svg" alt="Логотип ByeDPI" width="200" />
+  </p>
+  <h1>ByeByeDPI Android</h1>
+  <p>
+    <a href="README.md">Русский</a> |
+    <a href="README-en.md">English</a> |
+    Türkçe
+  </p>
+  <p>
+    <a href="https://github.com/romanvht/ByeByeDPI/releases/latest"><img src="https://img.shields.io/github/v/release/romanvht/ByeByeDPI" alt="Latest Release" /></a>
+    <a href="https://github.com/romanvht/ByeByeDPI/releases"><img src="https://img.shields.io/github/downloads/romanvht/ByeByeDPI/total" alt="Downloads" /></a>
+    <a href="https://github.com/romanvht/ByeByeDPI/blob/master/LICENSE"><img src="https://img.shields.io/github/license/romanvht/ByeByeDPI" alt="License" /></a>
+  </p>
 </div>
-
----
 
 ByeDPI'yi yerel olarak çalıştıran ve tüm trafiği bunun üzerinden yönlendiren bir Android uygulaması.
 
@@ -43,3 +51,21 @@ Bu uygulama, [ByeDPIAndroid](https://github.com/dovecoteescapee/ByeDPIAndroid) u
 Proxy Türü: SOCKS5
 Host: 127.0.0.1
 Port: 1080 (varsayılan)
+```
+
+### Oluşturma
+1. Depoyu alt modüllerle klonlayın:
+```bash
+git clone --recurse-submodules
+```
+2. Depo kökünden derleme betiğini çalıştırın:
+```bash
+./gradlew assemblyRelease
+```
+3. APK `app/build/outputs/apk/release/` dizininde olacaktır
+
+> Not: hev_socks5_tunnel Windows altında derlenmeyecektir, WSL kullanmanız gerekecektir
+
+### Bağımlılıklar
+- [ByeDPI](https://github.com/hufrea/byedpi)
+- [hev-socks5-tunnel](https://github.com/heiher/hev-socks5-tunnel)
