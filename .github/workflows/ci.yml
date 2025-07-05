@@ -16,7 +16,7 @@ jobs:
       - name: Clone repo
         uses: actions/checkout@v4
         with:
-          submodules: "recursive"
+          submodules: recursive
 
       - name: Validate Gradle Wrapper
         uses: gradle/actions/wrapper-validation@v4
@@ -35,7 +35,6 @@ jobs:
         run: ./gradlew assembleRelease --no-daemon
 
       - name: Upload Apk
-        if: github.repository == 'solodyagin/ByeByeDPIAndroid'
         uses: actions/upload-artifact@v4
         with:
           name: apk
